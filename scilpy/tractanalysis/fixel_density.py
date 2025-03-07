@@ -3,15 +3,17 @@ import multiprocessing
 import numpy as np
 
 from dipy.io.streamline import load_tractogram
-from scilpy.tractanalysis.grid_intersections import grid_intersections
+from scilpy.tractanalysis.voxel_boundary_intersection import\
+    subdivide_streamlines_at_voxel_faces
 
 
 def _fixel_density_parallel(args):
-    peaks = args[0]
-    max_theta = args[1]
-    dps_key = args[2]
-    bundle = args[3]
+    (peaks, max_theta, dps_key, bundle) = args
 
+    return _fixel_density_single_bundle(bundle, peaks, max_theta, dps_key)
+
+
+def _fixel_density_single_bundle(bundle, peaks, max_theta, dps_key):
     sft = load_tractogram(bundle, 'same')
     sft.to_vox()
     sft.to_corner()
@@ -20,9 +22,10 @@ def _fixel_density_parallel(args):
 
     min_cos_theta = np.cos(np.radians(max_theta))
 
-    all_crossed_indices = grid_intersections(sft.streamlines)
-    for i, crossed_indices in enumerate(all_crossed_indices):
-        segments = crossed_indices[1:] - crossed_indices[:-1]
+    all_split_streamlines =\
+        subdivide_streamlines_at_voxel_faces(sft.streamlines)
+    for i, split_streamlines in enumerate(all_split_streamlines):
+        segments = split_streamlines[1:] - split_streamlines[:-1]
         seg_lengths = np.linalg.norm(segments, axis=1)
 
         # Remove points where the segment is zero.
@@ -32,7 +35,7 @@ def _fixel_density_parallel(args):
         seg_lengths = seg_lengths[non_zero_lengths]
 
         # Those starting points are used for the segment vox_idx computations
-        seg_start = crossed_indices[non_zero_lengths]
+        seg_start = split_streamlines[non_zero_lengths]
         vox_indices = (seg_start + (0.5 * segments)).astype(int)
 
         normalized_seg = np.reshape(segments / seg_lengths[..., None], (-1, 3))
@@ -83,14 +86,22 @@ def fixel_density(peaks, bundles, dps_key=None, max_theta=45,
         if nbr_processes is None or nbr_processes <= 0 \
         else nbr_processes
 
-    pool = multiprocessing.Pool(nbr_processes)
-    results = pool.map(_fixel_density_parallel,
-                       zip(itertools.repeat(peaks),
-                           itertools.repeat(max_theta),
-                           itertools.repeat(dps_key),
-                           bundles))
-    pool.close()
-    pool.join()
+    # Separating the case nbr_processes=1 to help get good coverage metrics
+    # (codecov does not deal well with multiprocessing)
+    if nbr_processes == 1:
+        results = []
+        for b in bundles:
+            results.append(
+                _fixel_density_single_bundle(b, peaks, max_theta, dps_key))
+    else:
+        pool = multiprocessing.Pool(nbr_processes)
+        results = pool.map(_fixel_density_parallel,
+                           zip(itertools.repeat(peaks),
+                               itertools.repeat(max_theta),
+                               itertools.repeat(dps_key),
+                               bundles))
+        pool.close()
+        pool.join()
 
     fixel_density = np.moveaxis(np.asarray(results), 0, -1)
 

@@ -6,22 +6,24 @@ Given ground-truth fibertubes and a tractogram obtained through fibertube
 tracking, computes metrics about the quality of individual fiber
 reconstruction.
 
-VC: "Valid Connection": A streamline that ended within the final segment
-    of the fibertube in which it was seeded.
-IC: "Invalid Connection": A streamline that ended in the first or final
-    segment of another fibertube.
-NC: "No Connection": A streamline that has not ended in the first or final
-    segment of any fibertube.
+IMPORTANT: Streamlines given as input to be scored should be forward-only,
+which means they are saved so that [0] is the seeding position and [-1] is
+the end.
+TODO: Add the seed's segment index as dps, to allow different seeding methods
+and forward_only=False.
 
-Res_VC: "Resolution-wise Valid Connection": A streamline that passes closer
-    than [blur_darius] away from the last segment of the fibertube in which it
-    was seeded.
-Res_IC: "Resolution-wise Invalid Connection": A streamline that passes closer
-    than [blur_darius] away from the first or last segment of another
-    fibertube.
-Res_NC: "Resolution-wise No Connection": A streamlines that does not pass
-    closer than [blur_radius] away from the first or last segment of any
-    fibertube.
+Each streamline is associated with an "Arrival fibertube segment", which is
+the closest fibertube segment to its before-last coordinate. We then define
+the following terms:
+
+VC: "Valid Connection": A streamline whose arrival fibertube segment is
+the final segment of the fibertube in which is was originally seeded.
+
+IC: "Invalid Connection": A streamline whose arrival fibertube segment is
+the start or final segment of a fibertube in which is was not seeded.
+
+NC: "No Connection": A streamline whose arrival fibertube segment is
+not the start or final segment of any fibertube.
 
 The "absolute error" of a coordinate is the distance in mm between that
 coordinate and the closest point on its corresponding fibertube. The average
@@ -35,12 +37,6 @@ Computed metrics:
         Number of IC divided by the number of streamlines.
     - nc_ratio
         Number of NC divided by the number of streamlines.
-    - res_vc_ratio
-        Number of Res_VC divided by the number of streamlines.
-    - res_ic_ratio
-        Number of Res_IC divided by the number of streamlines.
-    - res_nc_ratio
-        Number of Res_NC divided by the number of streamlines.
     - mae_min
         Minimum MAE for the tractogram.
     - mae_max
@@ -59,7 +55,6 @@ See also:
 
 import os
 import json
-import numba
 import argparse
 import logging
 import numpy as np
@@ -76,21 +71,18 @@ from scilpy.io.utils import (assert_inputs_exist,
                              add_overwrite_arg,
                              add_verbose_arg,
                              add_json_args)
+from scilpy.version import version_string
 
 
 def _build_arg_parser():
-    p = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawTextHelpFormatter)
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawTextHelpFormatter,
+                                epilog=version_string)
 
     p.add_argument('in_fibertubes',
-                   help='Path to the tractogram file (must be .trk) \n'
-                   'containing ground-truth fibertubes. They must be: \n'
-                   '1- Void of any collision. \n'
-                   '2- With their respective diameter saved \n'
-                   'as data_per_streamline. \n'
-                   'For both of these requirements, see \n'
-                   'scil_tractogram_filter_collisions.')
+                   help='Path to the tractogram (must be .trk) file \n'
+                        'containing fibertubes. They must have their \n'
+                        'respective diameter saved as data_per_streamline.')
 
     p.add_argument('in_tracking',
                    help='Path to the tractogram file (must be .trk) \n'
@@ -167,28 +159,30 @@ def main():
     our_origin = Origin('center')
 
     logging.debug('Loading centerline tractogram & diameters')
-    truth_sft = load_tractogram(args.in_fibertubes, 'same', our_space,
-                                our_origin)
+    truth_sft = load_tractogram(args.in_fibertubes, 'same',
+                                to_space=our_space,
+                                to_origin=our_origin)
     centerlines = truth_sft.get_streamlines_copy()
     centerlines, centerlines_length = get_streamlines_as_fixed_array(
         centerlines)
 
     if "diameters" not in truth_sft.data_per_streamline:
-        parser.error('No diameters found as data per streamline on ' +
+        parser.error('No diameters found as data per streamline in ' +
                      args.in_fibertubes)
     diameters = np.reshape(truth_sft.data_per_streamline['diameters'],
                            len(centerlines))
 
     logging.debug('Loading reconstructed tractogram')
-    in_sft = load_tractogram(args.in_tracking, 'same', our_space,
-                             our_origin)
+    in_sft = load_tractogram(args.in_tracking, 'same',
+                             to_space=our_space,
+                             to_origin=our_origin)
     streamlines = in_sft.get_streamlines_copy()
     streamlines, streamlines_length = get_streamlines_as_fixed_array(
         streamlines)
 
     logging.debug("Loading seeds")
     if "seeds" not in in_sft.data_per_streamline:
-        parser.error('No seeds found as data per streamline on ' +
+        parser.error('No seeds found as data per streamline in ' +
                      args.in_tracking)
 
     seeds = in_sft.data_per_streamline['seeds']
@@ -197,7 +191,6 @@ def main():
     logging.debug("Loading config")
     with open(args.in_config, 'r') as f:
         config = json.load(f)
-    step_size = float(config['step_size'])
     blur_radius = float(config['blur_radius'])
 
     if len(seeds_fiber) != len(streamlines):
@@ -220,12 +213,9 @@ def main():
                         bbox_valid_check=False)
 
     logging.debug("Computing endpoint connectivity")
-    (truth_vc, truth_ic, truth_nc,
-     res_vc, res_ic, res_nc) = endpoint_connectivity(
-        step_size, blur_radius,
-        centerlines, centerlines_length,
-        diameters, streamlines,
-        seeds_fiber)
+    vc, ic, nc = endpoint_connectivity(blur_radius, centerlines,
+                                       centerlines_length, diameters,
+                                       streamlines, seeds_fiber)
 
     logging.debug("Computing reconstruction error")
     (mean_errors, error_tractogram) = mean_reconstruction_error(
@@ -233,12 +223,9 @@ def main():
         streamlines_length, seeds_fiber, args.save_error_tractogram)
 
     metrics = {
-        'vc_ratio': len(truth_vc)/len(streamlines),
-        'ic_ratio': len(truth_ic)/len(streamlines),
-        'nc_ratio': len(truth_nc)/len(streamlines),
-        'res_vc_ratio': len(res_vc)/len(streamlines),
-        'res_ic_ratio': len(res_ic)/len(streamlines),
-        'res_nc_ratio': len(res_nc)/len(streamlines),
+        'vc_ratio': len(vc)/len(streamlines),
+        'ic_ratio': len(ic)/len(streamlines),
+        'nc_ratio': len(nc)/len(streamlines),
         'mae_min': np.min(mean_errors),
         'mae_max': np.max(mean_errors),
         'mae_mean': np.mean(mean_errors),

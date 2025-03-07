@@ -50,18 +50,20 @@ from scilpy.dwi.utils import extract_dwi_shell
 from scilpy.image.utils import extract_affine
 from scilpy.io.btensor import generate_btensor_input
 from scilpy.io.image import get_data_as_mask
-from scilpy.io.utils import (add_overwrite_arg, add_verbose_arg,
+from scilpy.io.utils import (add_overwrite_arg, add_precision_arg,
+                             add_verbose_arg,
                              assert_inputs_exist, assert_outputs_exist,
                              assert_roi_radii_format, add_skip_b0_check_arg,
                              add_tolerance_arg,
                              assert_headers_compatible)
 from scilpy.reconst.frf import compute_msmt_frf
+from scilpy.version import version_string
 
 
 def _build_arg_parser():
-
     p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawTextHelpFormatter)
+                                formatter_class=argparse.RawTextHelpFormatter,
+                                epilog=version_string)
 
     p.add_argument('out_wm_frf',
                    help='Path to the output WM frf file, in .txt format.')
@@ -169,6 +171,7 @@ def _build_arg_parser():
                    help='Path to the output CSF frf mask file, the voxels '
                         'used to compute the CSF frf.')
 
+    add_precision_arg(p)
     add_verbose_arg(p)
     add_overwrite_arg(p)
 
@@ -264,7 +267,7 @@ def main():
     frf_out = [args.out_wm_frf, args.out_gm_frf, args.out_csf_frf]
 
     for frf, response in zip(frf_out, responses):
-        np.savetxt(frf, response)
+        np.savetxt(frf, response, fmt=f"%.{args.precision}f")
 
 
 if __name__ == "__main__":

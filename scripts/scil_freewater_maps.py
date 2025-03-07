@@ -2,10 +2,19 @@
 # -*- coding: utf-8 -*-
 
 """
-Compute Free Water maps [1] using AMICO.
+Compute Free Water maps [1] using the AMICO framework [2].
 This script supports both single and multi-shell data.
 
 Formerly: scil_compute_freewater.py
+----------------------------------------------------------
+References:
+[1] Pasternak 0, Sochen N, Gur Y, Intrator N, Assaf Y.
+    Free water elimination and mapping from diffusion mri.
+    Magn Reson Med. 62 (3) (2009) 717-730.
+[2] Daducci A, et al. Accelerated microstructure imaging
+    via convex optimization (AMICO) from diffusion MRI data.
+    Neuroimage 105 (2015) 32-44.
+----------------------------------------------------------
 """
 
 import argparse
@@ -28,21 +37,13 @@ from scilpy.io.utils import (add_overwrite_arg,
                              assert_output_dirs_exist_and_empty,
                              redirect_stdout_c)
 from scilpy.gradients.bvec_bval_tools import identify_shells
-
-
-EPILOG = """
-Reference:
-    [1] Pasternak 0, Sochen N, Gur Y, Intrator N, Assaf Y.
-        Free water elimination and mapping from diffusion mri.
-        Magn Reson Med. 62 (3) (2009) 717-730.
-"""
+from scilpy.version import version_string
 
 
 def _build_arg_parser():
-    p = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=EPILOG)
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawTextHelpFormatter,
+                                epilog=version_string)
 
     p.add_argument('in_dwi',
                    help='DWI file.')
@@ -103,7 +104,7 @@ def main():
     if args.verbose == "WARNING":
         f = io.StringIO()
         redirected_stdout = redirect_stdout(f)
-        redirect_stdout_c() 
+        redirect_stdout_c()
     else:
         logging.getLogger().setLevel(logging.getLevelName(args.verbose))
         redirected_stdout = redirect_stdout(sys.stdout)

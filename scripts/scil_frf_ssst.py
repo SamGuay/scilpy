@@ -8,6 +8,10 @@ A DTI fit is made, and voxels containing a single fiber population are
 found using a threshold on the FA.
 
 Formerly: scil_compute_ssst_frf.py
+----------------------------------------------------------------------
+Reference:
+[1] Tournier et al. NeuroImage 2007
+----------------------------------------------------------------------
 """
 
 import argparse
@@ -20,18 +24,19 @@ import numpy as np
 from scilpy.gradients.bvec_bval_tools import check_b0_threshold
 from scilpy.io.image import get_data_as_mask
 from scilpy.io.utils import (add_b0_thresh_arg, add_overwrite_arg,
+                             add_precision_arg,
                              add_skip_b0_check_arg, add_verbose_arg,
                              assert_inputs_exist, assert_outputs_exist,
                              assert_roi_radii_format,
                              assert_headers_compatible)
 from scilpy.reconst.frf import compute_ssst_frf
+from scilpy.version import version_string
 
 
 def _build_arg_parser():
-    p = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawTextHelpFormatter,
-        epilog="References: [1] Tournier et al. NeuroImage 2007")
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawTextHelpFormatter,
+                                epilog=version_string)
 
     p.add_argument('in_dwi',
                    help='Path of the input diffusion volume.')
@@ -80,6 +85,7 @@ def _build_arg_parser():
 
     add_b0_thresh_arg(p)
     add_skip_b0_check_arg(p, will_overwrite_with_min=True)
+    add_precision_arg(p)
     add_verbose_arg(p)
     add_overwrite_arg(p)
 
@@ -117,7 +123,7 @@ def main():
         min_fa_thresh=args.min_fa_thresh, min_nvox=args.min_nvox,
         roi_radii=roi_radii, roi_center=args.roi_center)
 
-    np.savetxt(args.frf_file, full_response)
+    np.savetxt(args.frf_file, full_response, fmt=f"%.{args.precision}f")
 
 
 if __name__ == "__main__":

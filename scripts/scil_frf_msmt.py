@@ -36,18 +36,19 @@ import numpy as np
 from scilpy.dwi.utils import extract_dwi_shell
 from scilpy.gradients.bvec_bval_tools import check_b0_threshold
 from scilpy.io.image import get_data_as_mask
-from scilpy.io.utils import (add_overwrite_arg, add_skip_b0_check_arg,
+from scilpy.io.utils import (add_overwrite_arg, add_precision_arg,
+                             add_skip_b0_check_arg,
                              add_verbose_arg, assert_inputs_exist,
                              assert_outputs_exist, assert_roi_radii_format,
                              assert_headers_compatible)
 from scilpy.reconst.frf import compute_msmt_frf
+from scilpy.version import version_string
 
 
 def _build_arg_parser():
-
-    p = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawTextHelpFormatter,
+                                epilog=version_string)
 
     p.add_argument('in_dwi',
                    help='Path to the input diffusion volume.')
@@ -136,6 +137,7 @@ def _build_arg_parser():
                    help='Path to the output CSF frf mask file, the voxels '
                         'used to compute the CSF frf.')
 
+    add_precision_arg(p)
     add_verbose_arg(p)
     add_overwrite_arg(p)
 
@@ -168,7 +170,8 @@ def main():
     # for the b0s. Using the tolerance. To fix this, we would need to change
     # the unique_bvals_tolerance and extract_dwi_shell methods.
     _ = check_b0_threshold(bvals.min(), b0_thr=args.tolerance,
-                           skip_b0_check=args.skip_b0_check)
+                           skip_b0_check=args.skip_b0_check,
+                           overwrite_with_min=False)
     list_bvals = unique_bvals_tolerance(bvals, tol=args.tolerance)
     if not np.all(list_bvals <= dti_lim):
         _, data_dti, bvals_dti, bvecs_dti = extract_dwi_shell(
@@ -216,7 +219,7 @@ def main():
     frf_out = [args.out_wm_frf, args.out_gm_frf, args.out_csf_frf]
 
     for frf, response in zip(frf_out, responses):
-        np.savetxt(frf, response)
+        np.savetxt(frf, response, fmt=f"%.{args.precision}f")
 
 
 if __name__ == "__main__":
